@@ -438,7 +438,7 @@ static int adis16550_get_freq(struct adis16550 *st, u32 *freq)
 	if (ret)
 		return -EINVAL;
 
-	adis_dev_lock(&st->adis);
+	adis_dev_unlock(&st->adis);
 
 	*freq = DIV_ROUND_CLOSEST(sample_rate, dec + 1);
 
