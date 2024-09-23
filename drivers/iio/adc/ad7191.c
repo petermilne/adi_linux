@@ -389,90 +389,6 @@ static int ad7191_clock_select(struct ad7191_state *st)
 
 static int ad7191_setup(struct iio_dev *indio_dev, struct device *dev)
 {
-	struct ad7191_state *st = iio_priv(indio_dev);
-	bool rej60_en, refin2_en;
-	bool buf_en, bipolar, burnout_curr_en;
-	unsigned long long scale_uv;
-	int i, ret, id;
-
-	/* reset the serial interface */
-	ret = ad_sd_reset(&st->sd, 48);
-	if (ret < 0)
-		return ret;
-	usleep_range(500, 1000); /* Wait for at least 500us */
-
-	/* write/read test for device presence */
-	ret = ad_sd_read_reg(&st->sd, AD7191_REG_ID, 1, &id);
-	if (ret)
-		return ret;
-
-	id = FIELD_GET(AD7191_ID_MASK, id);
-
-	if (id != st->chip_info->chip_id)
-		dev_warn(dev, "device ID query failed (0x%X != 0x%X)\n",
-			 id, st->chip_info->chip_id);
-
-	st->mode = FIELD_PREP(AD7191_MODE_SEL_MASK, AD7191_MODE_IDLE) |
-		FIELD_PREP(AD7191_MODE_CLKSRC_MASK, st->clock_sel) |
-		FIELD_PREP(AD7191_MODE_RATE_MASK, 480);
-
-	st->conf = FIELD_PREP(AD7191_CONF_GAIN_MASK, 0);
-
-	rej60_en = device_property_read_bool(dev, "adi,rejection-60-Hz-enable");
-	if (rej60_en)
-		st->mode |= AD7191_MODE_REJ60;
-
-	refin2_en = device_property_read_bool(dev, "adi,refin2-pins-enable");
-	if (refin2_en && st->chip_info->chip_id != CHIPID_AD7195)
-		st->conf |= AD7191_CONF_REFSEL;
-
-	st->conf &= ~AD7191_CONF_CHOP;
-
-	buf_en = device_property_read_bool(dev, "adi,buffer-enable");
-	if (buf_en)
-		st->conf |= AD7191_CONF_BUF;
-
-	bipolar = device_property_read_bool(dev, "bipolar");
-	if (!bipolar)
-		st->conf |= AD7191_CONF_UNIPOLAR;
-
-	burnout_curr_en = device_property_read_bool(dev,
-						    "adi,burnout-currents-enable");
-	if (burnout_curr_en && buf_en) {
-		st->conf |= AD7191_CONF_BURN;
-	} else if (burnout_curr_en) {
-		dev_warn(dev,
-			 "Can't enable burnout currents: see CHOP or buffer\n");
-	}
-
-	ret = ad_sd_write_reg(&st->sd, AD7191_REG_MODE, 3, st->mode);
-	if (ret)
-		return ret;
-
-	ret = ad_sd_write_reg(&st->sd, AD7191_REG_CONF, 3, st->conf);
-	if (ret)
-		return ret;
-
-	ret = ad7191_calibrate_all(st);
-	if (ret)
-		return ret;
-
-	/* Populate available ADC input ranges */
-	for (i = 0; i < ARRAY_SIZE(st->scale_avail); i++) {
-		scale_uv = ((u64)st->int_vref_mv * 100000000)
-			>> (indio_dev->channels[0].scan_type.realbits -
-			!FIELD_GET(AD7191_CONF_UNIPOLAR, st->conf));
-		scale_uv >>= i;
-
-		st->scale_avail[i][1] = do_div(scale_uv, 100000000) * 10;
-		st->scale_avail[i][0] = scale_uv;
-	}
-
-	st->oversampling_ratio_avail[0] = 1;
-	st->oversampling_ratio_avail[1] = 2;
-	st->oversampling_ratio_avail[2] = 8;
-	st->oversampling_ratio_avail[3] = 16;
-
 	return 0;
 }
 
@@ -1166,9 +1082,13 @@ static int ad7191_probe(struct spi_device *spi)
 		}
 	}
 
+	dev_info(&spi->dev, "ad7191: before setup\n");
+
 	ret = ad7191_setup(indio_dev, &spi->dev);
 	if (ret)
 		return ret;
+
+	dev_info(&spi->dev, "ad7191: after setup\n");
 
 	return devm_iio_device_register(&spi->dev, indio_dev);
 }
