@@ -2,6 +2,8 @@
 /dts-v1/;
 /plugin/;
 
+#include <dt-bindings/gpio/gpio.h>
+
 / {
 	compatible = "brcm,bcm2835", "brcm,bcm2708", "brcm,bcm2709";
 
@@ -50,15 +52,7 @@
 				dvdd-supply = <&dvdd>;
 				avdd-supply = <&avdd>;
 
-				adi,reference-voltage-mv = /bits/ 16  <3300>;
-				adi,clock-source-select = [02];
-				adi,refin2-pins-enable;
-				adi,rejection-60-Hz-enable;
-				adi,chop-enable;
-				adi,buffer-enable;
-				adi,burnout-currents-enable;
-				adi,sinc3-filter-enable;
-				adi,unipolar-enable;
+				test-gpios = <&gpio 24 GPIO_ACTIVE_HIGH>;
 			};
 		};
 	};

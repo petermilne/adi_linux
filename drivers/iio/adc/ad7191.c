@@ -197,6 +197,8 @@ struct ad7191_state {
 	u8				syscalib_mode[8];
 
 	struct ad_sigma_delta		sd;
+
+	struct gpio_desc			*test_gpio;
 };
 
 static const char * const ad7191_syscalib_modes[] = {
@@ -389,6 +391,28 @@ static int ad7191_clock_select(struct ad7191_state *st)
 
 static int ad7191_setup(struct iio_dev *indio_dev, struct device *dev)
 {
+	struct ad7191_state *st = iio_priv(indio_dev);
+	int ret;
+
+	st->test_gpio = devm_gpiod_get(dev, "test", GPIOD_OUT_LOW);
+	if (IS_ERR(st->test_gpio)) {
+		ret = PTR_ERR(st->test_gpio);
+		dev_err(dev, "Failed to get test GPIO: %d\n", ret);
+		return ret;
+	}
+
+	ret = gpiod_direction_output(st->test_gpio, 0);
+	if (ret) {
+		dev_err(dev, "Failed to set GPIO as output: %d\n", ret);
+		return ret;
+	}
+
+	gpiod_set_value(st->test_gpio, 0);
+	dev_info(dev, "Set test GPIO to 1\n");
+
+	ret = gpiod_get_value(st->test_gpio);
+	dev_info(dev, "Read back test GPIO value: %d\n", ret);
+
 	return 0;
 }
 
