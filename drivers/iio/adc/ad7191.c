@@ -112,27 +112,8 @@
 #define AD7191_CH_AIN3		BIT(6) /* AIN3 - AINCOM */
 #define AD7191_CH_AIN4		BIT(7) /* AIN4 - AINCOM */
 
-#define AD7193_CH_AIN1P_AIN2M	0x001  /* AIN1(+) - AIN2(-) */
-#define AD7193_CH_AIN3P_AIN4M	0x002  /* AIN3(+) - AIN4(-) */
-#define AD7193_CH_AIN5P_AIN6M	0x004  /* AIN5(+) - AIN6(-) */
-#define AD7193_CH_AIN7P_AIN8M	0x008  /* AIN7(+) - AIN8(-) */
-#define AD7193_CH_TEMP		0x100 /* Temp senseor */
-#define AD7193_CH_AIN2P_AIN2M	0x200 /* AIN2(+) - AIN2(-) */
-#define AD7193_CH_AIN1		0x401 /* AIN1 - AINCOM */
-#define AD7193_CH_AIN2		0x402 /* AIN2 - AINCOM */
-#define AD7193_CH_AIN3		0x404 /* AIN3 - AINCOM */
-#define AD7193_CH_AIN4		0x408 /* AIN4 - AINCOM */
-#define AD7193_CH_AIN5		0x410 /* AIN5 - AINCOM */
-#define AD7193_CH_AIN6		0x420 /* AIN6 - AINCOM */
-#define AD7193_CH_AIN7		0x440 /* AIN7 - AINCOM */
-#define AD7193_CH_AIN8		0x480 /* AIN7 - AINCOM */
-#define AD7193_CH_AINCOM	0x600 /* AINCOM - AINCOM */
-
 /* ID Register Bit Designations (AD7191_REG_ID) */
-#define CHIPID_AD7190		0x4
 #define CHIPID_AD7191		0x0
-#define CHIPID_AD7193		0x2
-#define CHIPID_AD7195		0x6
 #define AD7191_ID_MASK		GENMASK(3, 0)
 
 /* GPOCON Register Bit Designations (AD7191_REG_GPOCON) */
@@ -166,10 +147,7 @@ enum {
 };
 
 enum {
-	ID_AD7190,
 	ID_AD7191,
-	ID_AD7193,
-	ID_AD7195,
 };
 
 struct ad7191_chip_info {
@@ -184,7 +162,6 @@ struct ad7191_state {
 	const struct ad7191_chip_info	*chip_info;
 	struct regulator		*avdd;
 	struct regulator		*vref;
-	struct clk			*mclk;
 	u16				int_vref_mv;
 	u32				fclk;
 	u32				mode;
@@ -192,7 +169,6 @@ struct ad7191_state {
 	u32				scale_avail[8][2];
 	u32				oversampling_ratio_avail[4];
 	u8				gpocon;
-	u8				clock_sel;
 	struct mutex			lock;	/* protect sensor state */
 	u8				syscalib_mode[8];
 
@@ -366,27 +342,6 @@ static inline bool ad7191_valid_external_frequency(u32 freq)
 {
 	return (freq >= AD7191_EXT_FREQ_MHZ_MIN &&
 		freq <= AD7191_EXT_FREQ_MHZ_MAX);
-}
-
-static int ad7191_clock_select(struct ad7191_state *st)
-{
-	struct device *dev = &st->sd.spi->dev;
-	unsigned int clock_sel;
-
-	clock_sel = AD7191_CLK_INT;
-
-	/* use internal clock */
-	if (!st->mclk) {
-		if (device_property_read_bool(dev, "adi,int-clock-output-enable"))
-			clock_sel = AD7191_CLK_INT_CO;
-	} else {
-		if (device_property_read_bool(dev, "adi,clock-xtal"))
-			clock_sel = AD7191_CLK_EXT_MCLK1_2;
-		else
-			clock_sel = AD7191_CLK_EXT_MCLK2;
-	}
-
-	return clock_sel;
 }
 
 static int ad7191_setup(struct iio_dev *indio_dev, struct device *dev)
@@ -918,17 +873,6 @@ static const struct iio_info ad7195_info = {
 #define AD719x_TEMP_CHANNEL(_si, _address) \
 	__AD719x_CHANNEL(_si, 0, -1, _address, IIO_TEMP, 0, 0, 0, NULL)
 
-#define AD7193_DIFF_CHANNEL(_si, _channel1, _channel2, _address) \
-	__AD719x_CHANNEL(_si, _channel1, _channel2, _address, \
-		IIO_VOLTAGE, \
-		BIT(IIO_CHAN_INFO_OVERSAMPLING_RATIO), \
-		BIT(IIO_CHAN_INFO_SCALE), \
-		BIT(IIO_CHAN_INFO_OVERSAMPLING_RATIO), \
-		ad7191_calibsys_ext_info)
-
-#define AD7193_CHANNEL(_si, _channel1, _address) \
-	AD7193_DIFF_CHANNEL(_si, _channel1, -1, _address)
-
 static const struct iio_chan_spec ad7191_channels[] = {
 	AD719x_DIFF_CHANNEL(0, 1, 2, AD7191_CH_AIN1P_AIN2M),
 	AD719x_DIFF_CHANNEL(1, 3, 4, AD7191_CH_AIN3P_AIN4M),
@@ -941,32 +885,7 @@ static const struct iio_chan_spec ad7191_channels[] = {
 	IIO_CHAN_SOFT_TIMESTAMP(8),
 };
 
-static const struct iio_chan_spec ad7193_channels[] = {
-	AD7193_DIFF_CHANNEL(0, 1, 2, AD7193_CH_AIN1P_AIN2M),
-	AD7193_DIFF_CHANNEL(1, 3, 4, AD7193_CH_AIN3P_AIN4M),
-	AD7193_DIFF_CHANNEL(2, 5, 6, AD7193_CH_AIN5P_AIN6M),
-	AD7193_DIFF_CHANNEL(3, 7, 8, AD7193_CH_AIN7P_AIN8M),
-	AD719x_TEMP_CHANNEL(4, AD7193_CH_TEMP),
-	AD7193_DIFF_CHANNEL(5, 2, 2, AD7193_CH_AIN2P_AIN2M),
-	AD7193_CHANNEL(6, 1, AD7193_CH_AIN1),
-	AD7193_CHANNEL(7, 2, AD7193_CH_AIN2),
-	AD7193_CHANNEL(8, 3, AD7193_CH_AIN3),
-	AD7193_CHANNEL(9, 4, AD7193_CH_AIN4),
-	AD7193_CHANNEL(10, 5, AD7193_CH_AIN5),
-	AD7193_CHANNEL(11, 6, AD7193_CH_AIN6),
-	AD7193_CHANNEL(12, 7, AD7193_CH_AIN7),
-	AD7193_CHANNEL(13, 8, AD7193_CH_AIN8),
-	IIO_CHAN_SOFT_TIMESTAMP(14),
-};
-
 static const struct ad7191_chip_info ad7191_chip_info_tbl[] = {
-	[ID_AD7190] = {
-		.chip_id = CHIPID_AD7190,
-		.name = "ad7190",
-		.channels = ad7191_channels,
-		.num_channels = ARRAY_SIZE(ad7191_channels),
-		.info = &ad7191_info,
-	},
 	[ID_AD7191] = {
 		.chip_id = CHIPID_AD7191,
 		.name = "ad7191",
@@ -974,30 +893,11 @@ static const struct ad7191_chip_info ad7191_chip_info_tbl[] = {
 		.num_channels = ARRAY_SIZE(ad7191_channels),
 		.info = &ad7191_info,
 	},
-	[ID_AD7193] = {
-		.chip_id = CHIPID_AD7193,
-		.name = "ad7193",
-		.channels = ad7193_channels,
-		.num_channels = ARRAY_SIZE(ad7193_channels),
-		.info = &ad7191_info,
-	},
-	[ID_AD7195] = {
-		.chip_id = CHIPID_AD7195,
-		.name = "ad7195",
-		.channels = ad7191_channels,
-		.num_channels = ARRAY_SIZE(ad7191_channels),
-		.info = &ad7195_info,
-	},
 };
 
 static void ad7191_reg_disable(void *reg)
 {
 	regulator_disable(reg);
-}
-
-static void ad7191_clk_disable(void *clk)
-{
-	clk_disable_unprepare(clk);
 }
 
 static int ad7191_probe(struct spi_device *spi)
@@ -1079,33 +979,6 @@ static int ad7191_probe(struct spi_device *spi)
 	if (ret)
 		return ret;
 
-	st->fclk = AD7191_INT_FREQ_MHZ;
-
-	st->mclk = devm_clk_get_optional(&spi->dev, "mclk");
-	if (IS_ERR(st->mclk))
-		return PTR_ERR(st->mclk);
-
-	st->clock_sel = ad7191_clock_select(st);
-
-	if (st->clock_sel == AD7191_CLK_EXT_MCLK1_2 ||
-	    st->clock_sel == AD7191_CLK_EXT_MCLK2) {
-		ret = clk_prepare_enable(st->mclk);
-		if (ret < 0)
-			return ret;
-
-		ret = devm_add_action_or_reset(&spi->dev, ad7191_clk_disable,
-					       st->mclk);
-		if (ret)
-			return ret;
-
-		st->fclk = clk_get_rate(st->mclk);
-		if (!ad7191_valid_external_frequency(st->fclk)) {
-			dev_err(&spi->dev,
-				"External clock frequency out of bounds\n");
-			return -EINVAL;
-		}
-	}
-
 	dev_info(&spi->dev, "ad7191: before setup\n");
 
 	ret = ad7191_setup(indio_dev, &spi->dev);
@@ -1118,19 +991,13 @@ static int ad7191_probe(struct spi_device *spi)
 }
 
 static const struct of_device_id ad7191_of_match[] = {
-	{ .compatible = "adi,ad7190", .data = &ad7191_chip_info_tbl[ID_AD7190] },
 	{ .compatible = "adi,ad7191", .data = &ad7191_chip_info_tbl[ID_AD7191] },
-	{ .compatible = "adi,ad7193", .data = &ad7191_chip_info_tbl[ID_AD7193] },
-	{ .compatible = "adi,ad7195", .data = &ad7191_chip_info_tbl[ID_AD7195] },
 	{}
 };
 MODULE_DEVICE_TABLE(of, ad7191_of_match);
 
 static const struct spi_device_id ad7191_ids[] = {
-	{ "ad7190", (kernel_ulong_t)&ad7191_chip_info_tbl[ID_AD7190] },
 	{ "ad7191", (kernel_ulong_t)&ad7191_chip_info_tbl[ID_AD7191] },
-	{ "ad7193", (kernel_ulong_t)&ad7191_chip_info_tbl[ID_AD7193] },
-	{ "ad7195", (kernel_ulong_t)&ad7191_chip_info_tbl[ID_AD7195] },
 	{}
 };
 MODULE_DEVICE_TABLE(spi, ad7191_ids);
