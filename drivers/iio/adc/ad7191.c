@@ -254,23 +254,35 @@ static struct ad7191_state *ad_sigma_delta_to_ad7191(struct ad_sigma_delta *sd)
 
 static int ad7191_set_channel(struct ad_sigma_delta *sd, unsigned int channel)
 {
-	struct ad7191_state *st = ad_sigma_delta_to_ad7191(sd);
+	// struct ad7191_state *st = ad_sigma_delta_to_ad7191(sd);
 
-	st->conf &= ~AD7191_CONF_CHAN_MASK;
-	st->conf |= FIELD_PREP(AD7191_CONF_CHAN_MASK, channel);
+	dev_info(&sd->spi->dev, "setting channel %d\n", channel);
 
-	return ad_sd_write_reg(&st->sd, AD7191_REG_CONF, 3, st->conf);
+	// to set channel by setting gpios
+
+	return 0;
 }
 
-static int ad7191_set_mode(struct ad_sigma_delta *sd,
-			   enum ad_sigma_delta_mode mode)
+static int ad7191_set_mode(struct ad_sigma_delta *sd, enum ad_sigma_delta_mode mode)
 {
-	struct ad7191_state *st = ad_sigma_delta_to_ad7191(sd);
+	// struct ad7191_state *st = ad_sigma_delta_to_ad7191(sd);
 
-	st->mode &= ~AD7191_MODE_SEL_MASK;
-	st->mode |= FIELD_PREP(AD7191_MODE_SEL_MASK, mode);
+	dev_info(&sd->spi->dev, "setting mode %d\n", mode);
 
-	return ad_sd_write_reg(&st->sd, AD7191_REG_MODE, 3, st->mode);
+	// to set mode ??
+
+	return 0;
+}
+
+static int ad7191_postprocess_sample(struct ad_sigma_delta *sd, enum ad_sigma_delta_mode mode)
+{
+	// struct ad7191_state *st = ad_sigma_delta_to_ad7191(sd);
+
+	dev_info(&sd->spi->dev, "postprocess sample, mode = %d\n", mode);
+
+	// to postprocess sample ??
+
+	return 0;
 }
 
 static int ad7191_append_status(struct ad_sigma_delta *sd, bool append)
@@ -311,9 +323,10 @@ static int ad7191_disable_all(struct ad_sigma_delta *sd)
 static const struct ad_sigma_delta_info ad7191_sigma_delta_info = {
 	.set_channel = ad7191_set_channel,
 	.append_status = ad7191_append_status,
+	.postprocess_sample = ad7191_postprocess_sample,
 	.disable_all = ad7191_disable_all,
 	.set_mode = ad7191_set_mode,
-	.has_registers = true,
+	.has_registers = false,
 	.addr_shift = 3,
 	.read_mask = BIT(6),
 	.status_ch_mask = GENMASK(3, 0),
@@ -362,7 +375,7 @@ static int ad7191_setup(struct iio_dev *indio_dev, struct device *dev)
 		return ret;
 	}
 
-	gpiod_set_value(st->test_gpio, 0);
+	gpiod_set_value(st->test_gpio, 1);
 	dev_info(dev, "Set test GPIO to 1\n");
 
 	ret = gpiod_get_value(st->test_gpio);
