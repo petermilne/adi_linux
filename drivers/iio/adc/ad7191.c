@@ -371,16 +371,6 @@ static int ad7191_setup(struct iio_dev *indio_dev, struct device *dev)
 	return 0;
 }
 
-static ssize_t ad7191_show_ac_excitation(struct device *dev,
-					 struct device_attribute *attr,
-					 char *buf)
-{
-	struct iio_dev *indio_dev = dev_to_iio_dev(dev);
-	struct ad7191_state *st = iio_priv(indio_dev);
-
-	return sysfs_emit(buf, "%ld\n", FIELD_GET(AD7191_CONF_ACX, st->conf));
-}
-
 static ssize_t ad7191_show_bridge_switch(struct device *dev,
 					 struct device_attribute *attr,
 					 char *buf)
@@ -527,10 +517,6 @@ static IIO_DEVICE_ATTR(bridge_switch_en, 0644,
 		       ad7191_show_bridge_switch, ad7191_set,
 		       AD7191_REG_GPOCON);
 
-static IIO_DEVICE_ATTR(ac_excitation_en, 0644,
-		       ad7191_show_ac_excitation, ad7191_set,
-		       AD7191_REG_CONF);
-
 static struct attribute *ad7191_attributes[] = {
 	&iio_dev_attr_filter_low_pass_3db_frequency_available.dev_attr.attr,
 	&iio_dev_attr_bridge_switch_en.dev_attr.attr,
@@ -539,17 +525,6 @@ static struct attribute *ad7191_attributes[] = {
 
 static const struct attribute_group ad7191_attribute_group = {
 	.attrs = ad7191_attributes,
-};
-
-static struct attribute *ad7195_attributes[] = {
-	&iio_dev_attr_filter_low_pass_3db_frequency_available.dev_attr.attr,
-	&iio_dev_attr_bridge_switch_en.dev_attr.attr,
-	&iio_dev_attr_ac_excitation_en.dev_attr.attr,
-	NULL
-};
-
-static const struct attribute_group ad7195_attribute_group = {
-	.attrs = ad7195_attributes,
 };
 
 static unsigned int ad7191_get_temp_scale(bool unipolar)
@@ -821,16 +796,6 @@ static const struct iio_info ad7191_info = {
 	.write_raw_get_fmt = ad7191_write_raw_get_fmt,
 	.read_avail = ad7191_read_avail,
 	.attrs = &ad7191_attribute_group,
-	.validate_trigger = ad_sd_validate_trigger,
-	.update_scan_mode = ad7191_update_scan_mode,
-};
-
-static const struct iio_info ad7195_info = {
-	.read_raw = ad7191_read_raw,
-	.write_raw = ad7191_write_raw,
-	.write_raw_get_fmt = ad7191_write_raw_get_fmt,
-	.read_avail = ad7191_read_avail,
-	.attrs = &ad7195_attribute_group,
 	.validate_trigger = ad_sd_validate_trigger,
 	.update_scan_mode = ad7191_update_scan_mode,
 };
