@@ -167,7 +167,6 @@ struct ad7191_state {
 	u32				mode;
 	u32				conf;
 	u32				scale_avail[8][2];
-	u32				oversampling_ratio_avail[4];
 	u8				gpocon;
 	struct mutex			lock;	/* protect sensor state */
 	u8				syscalib_mode[8];
@@ -175,76 +174,6 @@ struct ad7191_state {
 	struct ad_sigma_delta		sd;
 
 	struct gpio_desc			*test_gpio;
-};
-
-static const char * const ad7191_syscalib_modes[] = {
-	[AD7191_SYSCALIB_ZERO_SCALE] = "zero_scale",
-	[AD7191_SYSCALIB_FULL_SCALE] = "full_scale",
-};
-
-static int ad7191_set_syscalib_mode(struct iio_dev *indio_dev,
-				    const struct iio_chan_spec *chan,
-				    unsigned int mode)
-{
-	struct ad7191_state *st = iio_priv(indio_dev);
-
-	st->syscalib_mode[chan->channel] = mode;
-
-	return 0;
-}
-
-static int ad7191_get_syscalib_mode(struct iio_dev *indio_dev,
-				    const struct iio_chan_spec *chan)
-{
-	struct ad7191_state *st = iio_priv(indio_dev);
-
-	return st->syscalib_mode[chan->channel];
-}
-
-static ssize_t ad7191_write_syscalib(struct iio_dev *indio_dev,
-				     uintptr_t private,
-				     const struct iio_chan_spec *chan,
-				     const char *buf, size_t len)
-{
-	struct ad7191_state *st = iio_priv(indio_dev);
-	bool sys_calib;
-	int ret, temp;
-
-	ret = kstrtobool(buf, &sys_calib);
-	if (ret)
-		return ret;
-
-	temp = st->syscalib_mode[chan->channel];
-	if (sys_calib) {
-		if (temp == AD7191_SYSCALIB_ZERO_SCALE)
-			ret = ad_sd_calibrate(&st->sd, AD7191_MODE_CAL_SYS_ZERO,
-					      chan->address);
-		else
-			ret = ad_sd_calibrate(&st->sd, AD7191_MODE_CAL_SYS_FULL,
-					      chan->address);
-	}
-
-	return ret ? ret : len;
-}
-
-static const struct iio_enum ad7191_syscalib_mode_enum = {
-	.items = ad7191_syscalib_modes,
-	.num_items = ARRAY_SIZE(ad7191_syscalib_modes),
-	.set = ad7191_set_syscalib_mode,
-	.get = ad7191_get_syscalib_mode
-};
-
-static const struct iio_chan_spec_ext_info ad7191_calibsys_ext_info[] = {
-	{
-		.name = "sys_calibration",
-		.write = ad7191_write_syscalib,
-		.shared = IIO_SEPARATE,
-	},
-	IIO_ENUM("sys_calibration_mode", IIO_SEPARATE,
-		 &ad7191_syscalib_mode_enum),
-	IIO_ENUM_AVAILABLE("sys_calibration_mode", IIO_SHARED_BY_TYPE,
-			   &ad7191_syscalib_mode_enum),
-	{}
 };
 
 static struct ad7191_state *ad_sigma_delta_to_ad7191(struct ad_sigma_delta *sd)
@@ -449,7 +378,7 @@ static int ad7191_compute_f_order(struct ad7191_state *st, bool sinc3_en, bool c
 	if (!avg_factor_selected && !chop_en)
 		return 1;
 
-	oversampling_ratio = st->oversampling_ratio_avail[avg_factor_selected];
+	oversampling_ratio = 1;
 
 	if (sinc3_en)
 		return AD7191_SYNC3_FILTER + oversampling_ratio - 1;
@@ -653,9 +582,6 @@ static int ad7191_read_raw(struct iio_dev *indio_dev,
 		*val = ad7191_get_3db_filter_freq(st);
 		*val2 = 1000;
 		return IIO_VAL_FRACTIONAL;
-	case IIO_CHAN_INFO_OVERSAMPLING_RATIO:
-		*val = st->oversampling_ratio_avail[FIELD_GET(AD7191_MODE_AVG_MASK, st->mode)];
-		return IIO_VAL_INT;
 	}
 
 	return -EINVAL;
@@ -713,23 +639,6 @@ static int ad7191_write_raw(struct iio_dev *indio_dev,
 	case IIO_CHAN_INFO_LOW_PASS_FILTER_3DB_FREQUENCY:
 		ret = ad7191_set_3db_filter_freq(st, val, val2 / 1000);
 		break;
-	case IIO_CHAN_INFO_OVERSAMPLING_RATIO:
-		ret = -EINVAL;
-		mutex_lock(&st->lock);
-		for (i = 0; i < ARRAY_SIZE(st->oversampling_ratio_avail); i++)
-			if (val == st->oversampling_ratio_avail[i]) {
-				ret = 0;
-				tmp = st->mode;
-				st->mode &= ~AD7191_MODE_AVG_MASK;
-				st->mode |= FIELD_PREP(AD7191_MODE_AVG_MASK, i);
-				if (tmp == st->mode)
-					break;
-				ad_sd_write_reg(&st->sd, AD7191_REG_MODE,
-						3, st->mode);
-				break;
-			}
-		mutex_unlock(&st->lock);
-		break;
 	default:
 		ret = -EINVAL;
 	}
@@ -750,8 +659,6 @@ static int ad7191_write_raw_get_fmt(struct iio_dev *indio_dev,
 		return IIO_VAL_INT;
 	case IIO_CHAN_INFO_LOW_PASS_FILTER_3DB_FREQUENCY:
 		return IIO_VAL_INT_PLUS_MICRO;
-	case IIO_CHAN_INFO_OVERSAMPLING_RATIO:
-		return IIO_VAL_INT;
 	default:
 		return -EINVAL;
 	}
@@ -770,12 +677,6 @@ static int ad7191_read_avail(struct iio_dev *indio_dev,
 		*type = IIO_VAL_INT_PLUS_NANO;
 		/* Values are stored in a 2D matrix  */
 		*length = ARRAY_SIZE(st->scale_avail) * 2;
-
-		return IIO_AVAIL_LIST;
-	case IIO_CHAN_INFO_OVERSAMPLING_RATIO:
-		*vals = (int *)st->oversampling_ratio_avail;
-		*type = IIO_VAL_INT;
-		*length = ARRAY_SIZE(st->oversampling_ratio_avail);
 
 		return IIO_AVAIL_LIST;
 	}
@@ -814,7 +715,7 @@ static const struct iio_info ad7191_info = {
 };
 
 #define __AD719x_CHANNEL(_si, _channel1, _channel2, _address, _type, \
-	_mask_all, _mask_type_av, _mask_all_av, _ext_info) \
+	_mask_all, _mask_type_av, _mask_all_av) \
 	{ \
 		.type = (_type), \
 		.differential = ((_channel2) == -1 ? 0 : 1), \
@@ -830,7 +731,6 @@ static const struct iio_info ad7191_info = {
 			(_mask_all), \
 		.info_mask_shared_by_type_available = (_mask_type_av), \
 		.info_mask_shared_by_all_available = (_mask_all_av), \
-		.ext_info = (_ext_info), \
 		.scan_index = (_si), \
 		.scan_type = { \
 			.sign = 'u', \
@@ -842,14 +742,14 @@ static const struct iio_info ad7191_info = {
 
 #define AD719x_DIFF_CHANNEL(_si, _channel1, _channel2, _address) \
 	__AD719x_CHANNEL(_si, _channel1, _channel2, _address, IIO_VOLTAGE, 0, \
-		BIT(IIO_CHAN_INFO_SCALE), 0, ad7191_calibsys_ext_info)
+		BIT(IIO_CHAN_INFO_SCALE), 0)
 
 #define AD719x_CHANNEL(_si, _channel1, _address) \
 	__AD719x_CHANNEL(_si, _channel1, -1, _address, IIO_VOLTAGE, 0, \
-		BIT(IIO_CHAN_INFO_SCALE), 0, ad7191_calibsys_ext_info)
+		BIT(IIO_CHAN_INFO_SCALE), 0)
 
 #define AD719x_TEMP_CHANNEL(_si, _address) \
-	__AD719x_CHANNEL(_si, 0, -1, _address, IIO_TEMP, 0, 0, 0, NULL)
+	__AD719x_CHANNEL(_si, 0, -1, _address, IIO_TEMP, 0, 0, 0)
 
 static const struct iio_chan_spec ad7191_channels[] = {
 	AD719x_DIFF_CHANNEL(0, 1, 2, AD7191_CH_AIN1P_AIN2M),
