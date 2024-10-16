@@ -142,11 +142,6 @@
  */
 
 enum {
-	AD7191_SYSCALIB_ZERO_SCALE,
-	AD7191_SYSCALIB_FULL_SCALE,
-};
-
-enum {
 	ID_AD7191,
 };
 
@@ -176,10 +171,10 @@ struct ad7191_state {
 	struct gpio_desc			*test_gpio;
 };
 
-static struct ad7191_state *ad_sigma_delta_to_ad7191(struct ad_sigma_delta *sd)
-{
-	return container_of(sd, struct ad7191_state, sd);
-}
+// static struct ad7191_state *ad_sigma_delta_to_ad7191(struct ad_sigma_delta *sd)
+// {
+// 	return container_of(sd, struct ad7191_state, sd);
+// }
 
 static int ad7191_set_channel(struct ad_sigma_delta *sd, unsigned int channel)
 {
@@ -214,71 +209,16 @@ static int ad7191_postprocess_sample(struct ad_sigma_delta *sd, enum ad_sigma_de
 	return 0;
 }
 
-static int ad7191_append_status(struct ad_sigma_delta *sd, bool append)
-{
-	struct ad7191_state *st = ad_sigma_delta_to_ad7191(sd);
-	unsigned int mode = st->mode;
-	int ret;
-
-	mode &= ~AD7191_MODE_STA_MASK;
-	mode |= FIELD_PREP(AD7191_MODE_STA_MASK, append);
-
-	ret = ad_sd_write_reg(&st->sd, AD7191_REG_MODE, 3, mode);
-	if (ret < 0)
-		return ret;
-
-	st->mode = mode;
-
-	return 0;
-}
-
-static int ad7191_disable_all(struct ad_sigma_delta *sd)
-{
-	struct ad7191_state *st = ad_sigma_delta_to_ad7191(sd);
-	u32 conf = st->conf;
-	int ret;
-
-	conf &= ~AD7191_CONF_CHAN_MASK;
-
-	ret = ad_sd_write_reg(&st->sd, AD7191_REG_CONF, 3, conf);
-	if (ret < 0)
-		return ret;
-
-	st->conf = conf;
-
-	return 0;
-}
-
 static const struct ad_sigma_delta_info ad7191_sigma_delta_info = {
 	.set_channel = ad7191_set_channel,
-	.append_status = ad7191_append_status,
 	.postprocess_sample = ad7191_postprocess_sample,
-	.disable_all = ad7191_disable_all,
 	.set_mode = ad7191_set_mode,
 	.has_registers = false,
 	.addr_shift = 3,
 	.read_mask = BIT(6),
 	.status_ch_mask = GENMASK(3, 0),
-	.num_slots = 4,
 	.irq_flags = IRQF_TRIGGER_FALLING,
 };
-
-static const struct ad_sd_calib_data ad7191_calib_arr[8] = {
-	{AD7191_MODE_CAL_INT_ZERO, AD7191_CH_AIN1},
-	{AD7191_MODE_CAL_INT_FULL, AD7191_CH_AIN1},
-	{AD7191_MODE_CAL_INT_ZERO, AD7191_CH_AIN2},
-	{AD7191_MODE_CAL_INT_FULL, AD7191_CH_AIN2},
-	{AD7191_MODE_CAL_INT_ZERO, AD7191_CH_AIN3},
-	{AD7191_MODE_CAL_INT_FULL, AD7191_CH_AIN3},
-	{AD7191_MODE_CAL_INT_ZERO, AD7191_CH_AIN4},
-	{AD7191_MODE_CAL_INT_FULL, AD7191_CH_AIN4}
-};
-
-static int ad7191_calibrate_all(struct ad7191_state *st)
-{
-	return ad_sd_calibrate_all(&st->sd, ad7191_calib_arr,
-				   ARRAY_SIZE(ad7191_calib_arr));
-}
 
 static inline bool ad7191_valid_external_frequency(u32 freq)
 {
@@ -351,14 +291,6 @@ static ssize_t ad7191_set(struct device *dev,
 			st->gpocon &= ~AD7191_GPOCON_BPDSW;
 
 		ad_sd_write_reg(&st->sd, AD7191_REG_GPOCON, 1, st->gpocon);
-		break;
-	case AD7191_REG_CONF:
-		if (val)
-			st->conf |= AD7191_CONF_ACX;
-		else
-			st->conf &= ~AD7191_CONF_ACX;
-
-		ad_sd_write_reg(&st->sd, AD7191_REG_CONF, 3, st->conf);
 		break;
 	default:
 		ret = -EINVAL;
@@ -615,7 +547,6 @@ static int ad7191_write_raw(struct iio_dev *indio_dev,
 					break;
 				ad_sd_write_reg(&st->sd, AD7191_REG_CONF,
 						3, st->conf);
-				ad7191_calibrate_all(st);
 				break;
 			}
 		mutex_unlock(&st->lock);
