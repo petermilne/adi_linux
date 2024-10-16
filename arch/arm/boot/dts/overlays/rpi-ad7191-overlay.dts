@@ -26,8 +26,21 @@
 			avdd: fixedregulator@1 {
 				compatible = "regulator-fixed";
 				regulator-name = "fixed-supply2";
-				regulator-min-microvolt = <3300000>;
-				regulator-max-microvolt = <3300000>;
+				regulator-min-microvolt = <5000000>;
+				regulator-max-microvolt = <5000000>;
+				regulator-boot-on;
+			};
+		};
+	};
+
+	fragment@2 {
+		target-path = "/";
+		__overlay__ {
+			vref: fixedregulator@2 {
+				compatible = "regulator-fixed";
+				regulator-name = "fixed-supply3";
+				regulator-min-microvolt = <5000000>;
+				regulator-max-microvolt = <5000000>;
 				regulator-boot-on;
 			};
 		};
@@ -51,6 +64,7 @@
 				interrupt-parent = <&gpio>;
 				dvdd-supply = <&dvdd>;
 				avdd-supply = <&avdd>;
+				vref-supply = <&vref>;
 
 				test-gpios = <&gpio 24 GPIO_ACTIVE_HIGH>;
 			};

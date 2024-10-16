@@ -157,11 +157,9 @@ struct ad7191_state {
 	const struct ad7191_chip_info	*chip_info;
 	struct regulator		*avdd;
 	struct regulator		*vref;
-	u16				int_vref_mv;
 	u32				fclk;
 	u32				mode;
 	u32				conf;
-	u32				scale_avail[8][2];
 	u8				gpocon;
 	struct mutex			lock;	/* protect sensor state */
 	u8				syscalib_mode[8];
@@ -169,6 +167,12 @@ struct ad7191_state {
 	struct ad_sigma_delta		sd;
 
 	struct gpio_desc			*test_gpio;
+
+	u16							int_vref_mv;
+	u8							gain_index;
+	u32							scale_avail[4][2];
+	u8							samp_freq_index;
+	u32							samp_freq_avail[4];
 };
 
 // static struct ad7191_state *ad_sigma_delta_to_ad7191(struct ad_sigma_delta *sd)
@@ -229,6 +233,9 @@ static inline bool ad7191_valid_external_frequency(u32 freq)
 static int ad7191_setup(struct iio_dev *indio_dev, struct device *dev)
 {
 	struct ad7191_state *st = iio_priv(indio_dev);
+	u64 scale_uv;
+	int gain[4] = {1, 8, 64, 128};
+	int i;
 	int ret;
 
 	st->test_gpio = devm_gpiod_get(dev, "test", GPIOD_OUT_LOW);
@@ -249,6 +256,19 @@ static int ad7191_setup(struct iio_dev *indio_dev, struct device *dev)
 
 	ret = gpiod_get_value(st->test_gpio);
 	dev_info(dev, "Read back test GPIO value: %d\n", ret);
+
+	st->samp_freq_avail[0] = 10;
+	st->samp_freq_avail[1] = 50;
+	st->samp_freq_avail[2] = 60;
+	st->samp_freq_avail[3] = 120;
+
+	for (i = 0; i < ARRAY_SIZE(st->scale_avail); i++) {
+		scale_uv = ((u64)st->int_vref_mv * 100000000) >> indio_dev->channels[0].scan_type.realbits;
+		do_div(scale_uv, gain[i]);
+
+		st->scale_avail[i][1] = do_div(scale_uv, 100000000) * 10;
+		st->scale_avail[i][0] = scale_uv;
+	}
 
 	return 0;
 }
@@ -301,98 +321,11 @@ static ssize_t ad7191_set(struct device *dev,
 	return ret ? ret : len;
 }
 
-static int ad7191_compute_f_order(struct ad7191_state *st, bool sinc3_en, bool chop_en)
-{
-	u8 avg_factor_selected, oversampling_ratio;
-
-	avg_factor_selected = FIELD_GET(AD7191_MODE_AVG_MASK, st->mode);
-
-	if (!avg_factor_selected && !chop_en)
-		return 1;
-
-	oversampling_ratio = 1;
-
-	if (sinc3_en)
-		return AD7191_SYNC3_FILTER + oversampling_ratio - 1;
-
-	return AD7191_SYNC4_FILTER + oversampling_ratio - 1;
-}
-
-static int ad7191_get_f_order(struct ad7191_state *st)
-{
-	bool sinc3_en, chop_en;
-
-	sinc3_en = FIELD_GET(AD7191_MODE_SINC3, st->mode);
-	chop_en = FIELD_GET(AD7191_CONF_CHOP, st->conf);
-
-	return ad7191_compute_f_order(st, sinc3_en, chop_en);
-}
-
-static int ad7191_compute_f_adc(struct ad7191_state *st, bool sinc3_en,
-				bool chop_en)
-{
-	unsigned int f_order = ad7191_compute_f_order(st, sinc3_en, chop_en);
-
-	return DIV_ROUND_CLOSEST(st->fclk,
-				 f_order * FIELD_GET(AD7191_MODE_RATE_MASK, st->mode));
-}
-
-static int ad7191_get_f_adc(struct ad7191_state *st)
-{
-	unsigned int f_order = ad7191_get_f_order(st);
-
-	return DIV_ROUND_CLOSEST(st->fclk,
-				 f_order * FIELD_GET(AD7191_MODE_RATE_MASK, st->mode));
-}
-
-static void ad7191_get_available_filter_freq(struct ad7191_state *st,
-						    int *freq)
-{
-	unsigned int fadc;
-
-	/* Formulas for filter at page 25 of the datasheet */
-	fadc = ad7191_compute_f_adc(st, false, true);
-	freq[0] = DIV_ROUND_CLOSEST(fadc * 240, 1024);
-
-	fadc = ad7191_compute_f_adc(st, true, true);
-	freq[1] = DIV_ROUND_CLOSEST(fadc * 240, 1024);
-
-	fadc = ad7191_compute_f_adc(st, false, false);
-	freq[2] = DIV_ROUND_CLOSEST(fadc * 230, 1024);
-
-	fadc = ad7191_compute_f_adc(st, true, false);
-	freq[3] = DIV_ROUND_CLOSEST(fadc * 272, 1024);
-}
-
-static ssize_t ad7191_show_filter_avail(struct device *dev,
-					struct device_attribute *attr,
-					char *buf)
-{
-	struct iio_dev *indio_dev = dev_to_iio_dev(dev);
-	struct ad7191_state *st = iio_priv(indio_dev);
-	unsigned int freq_avail[4], i;
-	size_t len = 0;
-
-	ad7191_get_available_filter_freq(st, freq_avail);
-
-	for (i = 0; i < ARRAY_SIZE(freq_avail); i++)
-		len += sysfs_emit_at(buf, len, "%d.%03d ", freq_avail[i] / 1000,
-				     freq_avail[i] % 1000);
-
-	buf[len - 1] = '\n';
-
-	return len;
-}
-
-static IIO_DEVICE_ATTR(filter_low_pass_3db_frequency_available,
-		       0444, ad7191_show_filter_avail, NULL, 0);
-
 static IIO_DEVICE_ATTR(bridge_switch_en, 0644,
-		       ad7191_show_bridge_switch, ad7191_set,
-		       AD7191_REG_GPOCON);
+			   ad7191_show_bridge_switch, ad7191_set,
+			   AD7191_REG_GPOCON);
 
 static struct attribute *ad7191_attributes[] = {
-	&iio_dev_attr_filter_low_pass_3db_frequency_available.dev_attr.attr,
 	&iio_dev_attr_bridge_switch_en.dev_attr.attr,
 	NULL
 };
@@ -406,70 +339,6 @@ static unsigned int ad7191_get_temp_scale(bool unipolar)
 	return unipolar ? 2815 * 2 : 2815;
 }
 
-static int ad7191_set_3db_filter_freq(struct ad7191_state *st,
-				      int val, int val2)
-{
-	int freq_avail[4], i, ret, freq;
-	unsigned int diff_new, diff_old;
-	int idx = 0;
-
-	diff_old = U32_MAX;
-	freq = val * 1000 + val2;
-
-	ad7191_get_available_filter_freq(st, freq_avail);
-
-	for (i = 0; i < ARRAY_SIZE(freq_avail); i++) {
-		diff_new = abs(freq - freq_avail[i]);
-		if (diff_new < diff_old) {
-			diff_old = diff_new;
-			idx = i;
-		}
-	}
-
-	switch (idx) {
-	case 0:
-		st->mode &= ~AD7191_MODE_SINC3;
-
-		st->conf |= AD7191_CONF_CHOP;
-		break;
-	case 1:
-		st->mode |= AD7191_MODE_SINC3;
-
-		st->conf |= AD7191_CONF_CHOP;
-		break;
-	case 2:
-		st->mode &= ~AD7191_MODE_SINC3;
-
-		st->conf &= ~AD7191_CONF_CHOP;
-		break;
-	case 3:
-		st->mode |= AD7191_MODE_SINC3;
-
-		st->conf &= ~AD7191_CONF_CHOP;
-		break;
-	}
-
-	ret = ad_sd_write_reg(&st->sd, AD7191_REG_MODE, 3, st->mode);
-	if (ret < 0)
-		return ret;
-
-	return ad_sd_write_reg(&st->sd, AD7191_REG_CONF, 3, st->conf);
-}
-
-static int ad7191_get_3db_filter_freq(struct ad7191_state *st)
-{
-	unsigned int fadc;
-
-	fadc = ad7191_get_f_adc(st);
-
-	if (FIELD_GET(AD7191_CONF_CHOP, st->conf))
-		return DIV_ROUND_CLOSEST(fadc * 240, 1024);
-	if (FIELD_GET(AD7191_MODE_SINC3, st->mode))
-		return DIV_ROUND_CLOSEST(fadc * 272, 1024);
-	else
-		return DIV_ROUND_CLOSEST(fadc * 230, 1024);
-}
-
 static int ad7191_read_raw(struct iio_dev *indio_dev,
 			   struct iio_chan_spec const *chan,
 			   int *val,
@@ -478,7 +347,6 @@ static int ad7191_read_raw(struct iio_dev *indio_dev,
 {
 	struct ad7191_state *st = iio_priv(indio_dev);
 	bool unipolar = FIELD_GET(AD7191_CONF_UNIPOLAR, st->conf);
-	u8 gain = FIELD_GET(AD7191_CONF_GAIN_MASK, st->conf);
 
 	switch (m) {
 	case IIO_CHAN_INFO_RAW:
@@ -487,8 +355,8 @@ static int ad7191_read_raw(struct iio_dev *indio_dev,
 		switch (chan->type) {
 		case IIO_VOLTAGE:
 			mutex_lock(&st->lock);
-			*val = st->scale_avail[gain][0];
-			*val2 = st->scale_avail[gain][1];
+			*val = st->scale_avail[st->gain_index][0];
+			*val2 = st->scale_avail[st->gain_index][1];
 			mutex_unlock(&st->lock);
 			return IIO_VAL_INT_PLUS_NANO;
 		case IIO_TEMP:
@@ -508,26 +376,22 @@ static int ad7191_read_raw(struct iio_dev *indio_dev,
 			*val -= 273 * ad7191_get_temp_scale(unipolar);
 		return IIO_VAL_INT;
 	case IIO_CHAN_INFO_SAMP_FREQ:
-		*val = DIV_ROUND_CLOSEST(ad7191_get_f_adc(st), 1024);
+		// *val = DIV_ROUND_CLOSEST(ad7191_get_f_adc(st), 1024);
+		*val = st->samp_freq_avail[st->samp_freq_index];
 		return IIO_VAL_INT;
-	case IIO_CHAN_INFO_LOW_PASS_FILTER_3DB_FREQUENCY:
-		*val = ad7191_get_3db_filter_freq(st);
-		*val2 = 1000;
-		return IIO_VAL_FRACTIONAL;
 	}
 
 	return -EINVAL;
 }
 
 static int ad7191_write_raw(struct iio_dev *indio_dev,
-			    struct iio_chan_spec const *chan,
-			    int val,
-			    int val2,
-			    long mask)
+				struct iio_chan_spec const *chan,
+				int val,
+				int val2,
+				long mask)
 {
 	struct ad7191_state *st = iio_priv(indio_dev);
-	int ret, i, div;
-	unsigned int tmp;
+	int ret, i;
 
 	ret = iio_device_claim_direct_mode(indio_dev);
 	if (ret)
@@ -540,13 +404,7 @@ static int ad7191_write_raw(struct iio_dev *indio_dev,
 		for (i = 0; i < ARRAY_SIZE(st->scale_avail); i++)
 			if (val2 == st->scale_avail[i][1]) {
 				ret = 0;
-				tmp = st->conf;
-				st->conf &= ~AD7191_CONF_GAIN_MASK;
-				st->conf |= FIELD_PREP(AD7191_CONF_GAIN_MASK, i);
-				if (tmp == st->conf)
-					break;
-				ad_sd_write_reg(&st->sd, AD7191_REG_CONF,
-						3, st->conf);
+				st->gain_index = i;
 				break;
 			}
 		mutex_unlock(&st->lock);
@@ -556,19 +414,13 @@ static int ad7191_write_raw(struct iio_dev *indio_dev,
 			ret = -EINVAL;
 			break;
 		}
-
-		div = st->fclk / (val * ad7191_get_f_order(st) * 1024);
-		if (div < 1 || div > 1023) {
-			ret = -EINVAL;
-			break;
-		}
-
-		st->mode &= ~AD7191_MODE_RATE_MASK;
-		st->mode |= FIELD_PREP(AD7191_MODE_RATE_MASK, div);
-		ad_sd_write_reg(&st->sd, AD7191_REG_MODE, 3, st->mode);
-		break;
-	case IIO_CHAN_INFO_LOW_PASS_FILTER_3DB_FREQUENCY:
-		ret = ad7191_set_3db_filter_freq(st, val, val2 / 1000);
+		mutex_lock(&st->lock);
+		for (i = 0; i < ARRAY_SIZE(st->samp_freq_avail); i++)
+			if (val == st->samp_freq_avail[i]) {
+				st->samp_freq_index = i;
+				break;
+			}
+		mutex_unlock(&st->lock);
 		break;
 	default:
 		ret = -EINVAL;
@@ -580,25 +432,23 @@ static int ad7191_write_raw(struct iio_dev *indio_dev,
 }
 
 static int ad7191_write_raw_get_fmt(struct iio_dev *indio_dev,
-				    struct iio_chan_spec const *chan,
-				    long mask)
+					struct iio_chan_spec const *chan,
+					long mask)
 {
 	switch (mask) {
 	case IIO_CHAN_INFO_SCALE:
 		return IIO_VAL_INT_PLUS_NANO;
 	case IIO_CHAN_INFO_SAMP_FREQ:
 		return IIO_VAL_INT;
-	case IIO_CHAN_INFO_LOW_PASS_FILTER_3DB_FREQUENCY:
-		return IIO_VAL_INT_PLUS_MICRO;
 	default:
 		return -EINVAL;
 	}
 }
 
 static int ad7191_read_avail(struct iio_dev *indio_dev,
-			     struct iio_chan_spec const *chan,
-			     const int **vals, int *type, int *length,
-			     long mask)
+				 struct iio_chan_spec const *chan,
+				 const int **vals, int *type, int *length,
+				 long mask)
 {
 	struct ad7191_state *st = iio_priv(indio_dev);
 
@@ -610,29 +460,15 @@ static int ad7191_read_avail(struct iio_dev *indio_dev,
 		*length = ARRAY_SIZE(st->scale_avail) * 2;
 
 		return IIO_AVAIL_LIST;
+	case IIO_CHAN_INFO_SAMP_FREQ:
+		*vals = (int *)st->samp_freq_avail;
+		*type = IIO_VAL_INT;
+		*length = ARRAY_SIZE(st->samp_freq_avail);
+
+		return IIO_AVAIL_LIST;
 	}
 
 	return -EINVAL;
-}
-
-static int ad7191_update_scan_mode(struct iio_dev *indio_dev, const unsigned long *scan_mask)
-{
-	struct ad7191_state *st = iio_priv(indio_dev);
-	u32 conf = st->conf;
-	int ret;
-	int i;
-
-	conf &= ~AD7191_CONF_CHAN_MASK;
-	for_each_set_bit(i, scan_mask, 8)
-		conf |= FIELD_PREP(AD7191_CONF_CHAN_MASK, i);
-
-	ret = ad_sd_write_reg(&st->sd, AD7191_REG_CONF, 3, conf);
-	if (ret < 0)
-		return ret;
-
-	st->conf = conf;
-
-	return 0;
 }
 
 static const struct iio_info ad7191_info = {
@@ -642,7 +478,6 @@ static const struct iio_info ad7191_info = {
 	.read_avail = ad7191_read_avail,
 	.attrs = &ad7191_attribute_group,
 	.validate_trigger = ad_sd_validate_trigger,
-	.update_scan_mode = ad7191_update_scan_mode,
 };
 
 #define __AD719x_CHANNEL(_si, _channel1, _channel2, _address, _type, \
@@ -658,7 +493,6 @@ static const struct iio_info ad7191_info = {
 			BIT(IIO_CHAN_INFO_OFFSET), \
 		.info_mask_shared_by_type = BIT(IIO_CHAN_INFO_SCALE), \
 		.info_mask_shared_by_all = BIT(IIO_CHAN_INFO_SAMP_FREQ) | \
-			BIT(IIO_CHAN_INFO_LOW_PASS_FILTER_3DB_FREQUENCY) | \
 			(_mask_all), \
 		.info_mask_shared_by_type_available = (_mask_type_av), \
 		.info_mask_shared_by_all_available = (_mask_all_av), \
@@ -673,11 +507,11 @@ static const struct iio_info ad7191_info = {
 
 #define AD719x_DIFF_CHANNEL(_si, _channel1, _channel2, _address) \
 	__AD719x_CHANNEL(_si, _channel1, _channel2, _address, IIO_VOLTAGE, 0, \
-		BIT(IIO_CHAN_INFO_SCALE), 0)
+		BIT(IIO_CHAN_INFO_SCALE) | BIT(IIO_CHAN_INFO_SAMP_FREQ), 0)
 
 #define AD719x_CHANNEL(_si, _channel1, _address) \
 	__AD719x_CHANNEL(_si, _channel1, -1, _address, IIO_VOLTAGE, 0, \
-		BIT(IIO_CHAN_INFO_SCALE), 0)
+		BIT(IIO_CHAN_INFO_SCALE) | BIT(IIO_CHAN_INFO_SAMP_FREQ), 0)
 
 #define AD719x_TEMP_CHANNEL(_si, _address) \
 	__AD719x_CHANNEL(_si, 0, -1, _address, IIO_TEMP, 0, 0, 0)
@@ -748,32 +582,26 @@ static int ad7191_probe(struct spi_device *spi)
 	if (ret)
 		return dev_err_probe(&spi->dev, ret, "Failed to enable specified DVdd supply\n");
 
-	st->vref = devm_regulator_get_optional(&spi->dev, "vref");
-	if (IS_ERR(st->vref)) {
-		if (PTR_ERR(st->vref) != -ENODEV)
-			return PTR_ERR(st->vref);
+	st->vref = devm_regulator_get(&spi->dev, "vref");
+	if (IS_ERR(st->vref))
+		return PTR_ERR(st->vref);
 
-		ret = regulator_get_voltage(st->avdd);
-		if (ret < 0)
-			return dev_err_probe(&spi->dev, ret,
-					     "Device tree error, AVdd voltage undefined\n");
-	} else {
-		ret = regulator_enable(st->vref);
-		if (ret) {
-			dev_err(&spi->dev, "Failed to enable specified Vref supply\n");
-			return ret;
-		}
-
-		ret = devm_add_action_or_reset(&spi->dev, ad7191_reg_disable, st->vref);
-		if (ret)
-			return ret;
-
-		ret = regulator_get_voltage(st->vref);
-		if (ret < 0)
-			return dev_err_probe(&spi->dev, ret,
-					     "Device tree error, Vref voltage undefined\n");
+	ret = regulator_enable(st->vref);
+	if (ret) {
+		dev_err(&spi->dev, "Failed to enable specified Vref supply\n");
+		return ret;
 	}
+
+	ret = devm_add_action_or_reset(&spi->dev, ad7191_reg_disable, st->vref);
+	if (ret)
+		return ret;
+
+	ret = regulator_get_voltage(st->vref);
+	if (ret < 0)
+		return dev_err_probe(&spi->dev, ret,
+						"Device tree error, Vref voltage undefined\n");
 	st->int_vref_mv = ret / 1000;
+	dev_info(&spi->dev, "int_vref_mv = %d\n", st->int_vref_mv);
 
 	st->chip_info = spi_get_device_match_data(spi);
 	indio_dev->name = st->chip_info->name;
