@@ -83,7 +83,7 @@
 /* burst read */
 #define ADIS16550_BURST_N_ELEM		12
 #define ADIS16550_BURST_DATA_LEN	(ADIS16550_BURST_N_ELEM * 4)
-#define ADIS16550_MAX_SCAN_DATA		10
+#define ADIS16550_MAX_SCAN_DATA		12
 
 struct adis16550_sync {
 	u16 sync_mode;
