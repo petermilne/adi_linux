@@ -103,15 +103,6 @@
 #define AD7191_CONF_UNIPOLAR	BIT(3) /* Unipolar/Bipolar Enable */
 #define AD7191_CONF_GAIN_MASK	GENMASK(2, 0) /* Gain Select */
 
-#define AD7191_CH_AIN1P_AIN2M	BIT(0) /* AIN1(+) - AIN2(-) */
-#define AD7191_CH_AIN3P_AIN4M	BIT(1) /* AIN3(+) - AIN4(-) */
-#define AD7191_CH_TEMP		BIT(2) /* Temp Sensor */
-#define AD7191_CH_AIN2P_AIN2M	BIT(3) /* AIN2(+) - AIN2(-) */
-#define AD7191_CH_AIN1		BIT(4) /* AIN1 - AINCOM */
-#define AD7191_CH_AIN2		BIT(5) /* AIN2 - AINCOM */
-#define AD7191_CH_AIN3		BIT(6) /* AIN3 - AINCOM */
-#define AD7191_CH_AIN4		BIT(7) /* AIN4 - AINCOM */
-
 /* ID Register Bit Designations (AD7191_REG_ID) */
 #define CHIPID_AD7191		0x0
 #define AD7191_ID_MASK		GENMASK(3, 0)
@@ -132,6 +123,10 @@
 #define AD7191_NO_SYNC_FILTER	1
 #define AD7191_SYNC3_FILTER	3
 #define AD7191_SYNC4_FILTER	4
+
+#define AD7191_CH_AIN1_AIN2		0
+#define AD7191_CH_AIN3_AIN4		1
+#define AD7191_CH_TEMP			2
 
 /* NOTE:
  * The AD7190/2/5 features a dual use data out ready DOUT/RDY output.
@@ -218,9 +213,6 @@ static const struct ad_sigma_delta_info ad7191_sigma_delta_info = {
 	.postprocess_sample = ad7191_postprocess_sample,
 	.set_mode = ad7191_set_mode,
 	.has_registers = false,
-	.addr_shift = 3,
-	.read_mask = BIT(6),
-	.status_ch_mask = GENMASK(3, 0),
 	.irq_flags = IRQF_TRIGGER_FALLING,
 };
 
@@ -500,7 +492,7 @@ static const struct iio_info ad7191_info = {
 		.scan_type = { \
 			.sign = 'u', \
 			.realbits = 24, \
-			.storagebits = 32, \
+			.storagebits = 24, \
 			.endianness = IIO_BE, \
 		}, \
 	}
@@ -516,16 +508,23 @@ static const struct iio_info ad7191_info = {
 #define AD719x_TEMP_CHANNEL(_si, _address) \
 	__AD719x_CHANNEL(_si, 0, -1, _address, IIO_TEMP, 0, 0, 0)
 
+// static const struct iio_chan_spec ad7191_channels[] = {
+// 	AD719x_DIFF_CHANNEL(0, 1, 2, AD7191_CH_AIN1P_AIN2M),
+// 	AD719x_DIFF_CHANNEL(1, 3, 4, AD7191_CH_AIN3P_AIN4M),
+// 	AD719x_TEMP_CHANNEL(2, AD7191_CH_TEMP),
+// 	AD719x_DIFF_CHANNEL(3, 2, 2, AD7191_CH_AIN2P_AIN2M),
+// 	AD719x_CHANNEL(4, 1, AD7191_CH_AIN1),
+// 	AD719x_CHANNEL(5, 2, AD7191_CH_AIN2),
+// 	AD719x_CHANNEL(6, 3, AD7191_CH_AIN3),
+// 	AD719x_CHANNEL(7, 4, AD7191_CH_AIN4),
+// 	IIO_CHAN_SOFT_TIMESTAMP(8),
+// };
+
 static const struct iio_chan_spec ad7191_channels[] = {
-	AD719x_DIFF_CHANNEL(0, 1, 2, AD7191_CH_AIN1P_AIN2M),
-	AD719x_DIFF_CHANNEL(1, 3, 4, AD7191_CH_AIN3P_AIN4M),
-	AD719x_TEMP_CHANNEL(2, AD7191_CH_TEMP),
-	AD719x_DIFF_CHANNEL(3, 2, 2, AD7191_CH_AIN2P_AIN2M),
-	AD719x_CHANNEL(4, 1, AD7191_CH_AIN1),
-	AD719x_CHANNEL(5, 2, AD7191_CH_AIN2),
-	AD719x_CHANNEL(6, 3, AD7191_CH_AIN3),
-	AD719x_CHANNEL(7, 4, AD7191_CH_AIN4),
-	IIO_CHAN_SOFT_TIMESTAMP(8),
+	AD719x_TEMP_CHANNEL(0, AD7191_CH_TEMP),
+	AD719x_DIFF_CHANNEL(1, 1, 2, AD7191_CH_AIN1_AIN2),
+	AD719x_DIFF_CHANNEL(2, 3, 4, AD7191_CH_AIN3_AIN4),
+	IIO_CHAN_SOFT_TIMESTAMP(3),
 };
 
 static const struct ad7191_chip_info ad7191_chip_info_tbl[] = {
