@@ -170,10 +170,10 @@ struct ad7191_state {
 	u32							samp_freq_avail[4];
 };
 
-// static struct ad7191_state *ad_sigma_delta_to_ad7191(struct ad_sigma_delta *sd)
-// {
-// 	return container_of(sd, struct ad7191_state, sd);
-// }
+static struct ad7191_state *ad_sigma_delta_to_ad7191(struct ad_sigma_delta *sd)
+{
+	return container_of(sd, struct ad7191_state, sd);
+}
 
 static int ad7191_set_channel(struct ad_sigma_delta *sd, unsigned int channel)
 {
@@ -255,7 +255,8 @@ static int ad7191_setup(struct iio_dev *indio_dev, struct device *dev)
 	st->samp_freq_avail[3] = 120;
 
 	for (i = 0; i < ARRAY_SIZE(st->scale_avail); i++) {
-		scale_uv = ((u64)st->int_vref_mv * 100000000) >> indio_dev->channels[0].scan_type.realbits;
+		scale_uv = ((u64)st->int_vref_mv * 100000000) >>
+				   indio_dev->channels[0].scan_type.realbits;
 		do_div(scale_uv, gain[i]);
 
 		st->scale_avail[i][1] = do_div(scale_uv, 100000000) * 10;
@@ -377,10 +378,8 @@ static int ad7191_read_raw(struct iio_dev *indio_dev,
 }
 
 static int ad7191_write_raw(struct iio_dev *indio_dev,
-				struct iio_chan_spec const *chan,
-				int val,
-				int val2,
-				long mask)
+			    struct iio_chan_spec const *chan, int val, int val2,
+			    long mask)
 {
 	struct ad7191_state *st = iio_priv(indio_dev);
 	int ret, i;
@@ -424,8 +423,7 @@ static int ad7191_write_raw(struct iio_dev *indio_dev,
 }
 
 static int ad7191_write_raw_get_fmt(struct iio_dev *indio_dev,
-					struct iio_chan_spec const *chan,
-					long mask)
+				    struct iio_chan_spec const *chan, long mask)
 {
 	switch (mask) {
 	case IIO_CHAN_INFO_SCALE:
@@ -438,9 +436,8 @@ static int ad7191_write_raw_get_fmt(struct iio_dev *indio_dev,
 }
 
 static int ad7191_read_avail(struct iio_dev *indio_dev,
-				 struct iio_chan_spec const *chan,
-				 const int **vals, int *type, int *length,
-				 long mask)
+			     struct iio_chan_spec const *chan, const int **vals,
+			     int *type, int *length, long mask)
 {
 	struct ad7191_state *st = iio_priv(indio_dev);
 
@@ -501,24 +498,8 @@ static const struct iio_info ad7191_info = {
 	__AD719x_CHANNEL(_si, _channel1, _channel2, _address, IIO_VOLTAGE, 0, \
 		BIT(IIO_CHAN_INFO_SCALE) | BIT(IIO_CHAN_INFO_SAMP_FREQ), 0)
 
-#define AD719x_CHANNEL(_si, _channel1, _address) \
-	__AD719x_CHANNEL(_si, _channel1, -1, _address, IIO_VOLTAGE, 0, \
-		BIT(IIO_CHAN_INFO_SCALE) | BIT(IIO_CHAN_INFO_SAMP_FREQ), 0)
-
 #define AD719x_TEMP_CHANNEL(_si, _address) \
 	__AD719x_CHANNEL(_si, 0, -1, _address, IIO_TEMP, 0, 0, 0)
-
-// static const struct iio_chan_spec ad7191_channels[] = {
-// 	AD719x_DIFF_CHANNEL(0, 1, 2, AD7191_CH_AIN1P_AIN2M),
-// 	AD719x_DIFF_CHANNEL(1, 3, 4, AD7191_CH_AIN3P_AIN4M),
-// 	AD719x_TEMP_CHANNEL(2, AD7191_CH_TEMP),
-// 	AD719x_DIFF_CHANNEL(3, 2, 2, AD7191_CH_AIN2P_AIN2M),
-// 	AD719x_CHANNEL(4, 1, AD7191_CH_AIN1),
-// 	AD719x_CHANNEL(5, 2, AD7191_CH_AIN2),
-// 	AD719x_CHANNEL(6, 3, AD7191_CH_AIN3),
-// 	AD719x_CHANNEL(7, 4, AD7191_CH_AIN4),
-// 	IIO_CHAN_SOFT_TIMESTAMP(8),
-// };
 
 static const struct iio_chan_spec ad7191_channels[] = {
 	AD719x_TEMP_CHANNEL(0, AD7191_CH_TEMP),
