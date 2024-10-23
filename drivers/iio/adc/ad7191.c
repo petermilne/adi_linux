@@ -161,7 +161,13 @@ struct ad7191_state {
 
 	struct ad_sigma_delta		sd;
 
-	struct gpio_desc			*test_gpio;
+	struct gpio_desc			*odr1_gpio;
+	struct gpio_desc			*odr2_gpio;
+	struct gpio_desc			*pga1_gpio;
+	struct gpio_desc			*pga2_gpio;
+	struct gpio_desc			*temp_gpio;
+	struct gpio_desc			*chan_gpio;
+	struct gpio_desc			*clksel_gpio;
 
 	u16							int_vref_mv;
 	u8							gain_index;
@@ -228,31 +234,11 @@ static int ad7191_setup(struct iio_dev *indio_dev, struct device *dev)
 	u64 scale_uv;
 	int gain[4] = {1, 8, 64, 128};
 	int i;
-	int ret;
 
-	st->test_gpio = devm_gpiod_get(dev, "test", GPIOD_OUT_LOW);
-	if (IS_ERR(st->test_gpio)) {
-		ret = PTR_ERR(st->test_gpio);
-		dev_err(dev, "Failed to get test GPIO: %d\n", ret);
-		return ret;
-	}
-
-	ret = gpiod_direction_output(st->test_gpio, 0);
-	if (ret) {
-		dev_err(dev, "Failed to set GPIO as output: %d\n", ret);
-		return ret;
-	}
-
-	gpiod_set_value(st->test_gpio, 1);
-	dev_info(dev, "Set test GPIO to 1\n");
-
-	ret = gpiod_get_value(st->test_gpio);
-	dev_info(dev, "Read back test GPIO value: %d\n", ret);
-
-	st->samp_freq_avail[0] = 10;
-	st->samp_freq_avail[1] = 50;
-	st->samp_freq_avail[2] = 60;
-	st->samp_freq_avail[3] = 120;
+	st->samp_freq_avail[0] = 120;
+	st->samp_freq_avail[1] = 60;
+	st->samp_freq_avail[2] = 50;
+	st->samp_freq_avail[3] = 10;
 
 	for (i = 0; i < ARRAY_SIZE(st->scale_avail); i++) {
 		scale_uv = ((u64)st->int_vref_mv * 100000000) >>
@@ -377,6 +363,52 @@ static int ad7191_read_raw(struct iio_dev *indio_dev,
 	return -EINVAL;
 }
 
+static int ad7191_set_gain(struct ad7191_state *st, u8 gain_index)
+{
+	u8 pga1_gpio_val, pga2_gpio_val;
+	st->gain_index = gain_index;
+
+	// pga2, pga1
+	// 0, 0 => 1
+	// 0, 1 => 8
+	// 1, 0 => 64
+	// 1, 1 => 128
+
+	pga1_gpio_val = 0x1 & gain_index;
+	pga2_gpio_val = (0x2 & gain_index) >> 1;
+
+	dev_info(&st->sd.spi->dev, "Setting pga1 to %d\n", pga1_gpio_val);
+	dev_info(&st->sd.spi->dev, "Setting pga2 to %d\n", pga2_gpio_val);
+
+	gpiod_set_value(st->pga1_gpio, pga1_gpio_val);
+	gpiod_set_value(st->pga2_gpio, pga2_gpio_val);
+
+	return 0;
+}
+
+static int ad7191_set_samp_freq(struct ad7191_state *st, u8 samp_freq_index)
+{
+	u8 odr1_gpio_val, odr2_gpio_val;
+	st->samp_freq_index = samp_freq_index;
+	
+	// odr2, odr1
+	// 0, 0 => 120
+	// 0, 1 => 60
+	// 1, 0 => 50
+	// 1, 1 => 10
+
+	odr1_gpio_val = 0x1 & samp_freq_index;
+	odr2_gpio_val = (0x2 & samp_freq_index) >> 1;
+
+	dev_info(&st->sd.spi->dev, "Setting odr1 to %d\n", odr1_gpio_val);
+	dev_info(&st->sd.spi->dev, "Setting odr2 to %d\n", odr2_gpio_val);
+
+	gpiod_set_value(st->odr1_gpio, odr1_gpio_val);
+	gpiod_set_value(st->odr2_gpio, odr2_gpio_val);
+
+	return 0;
+}
+
 static int ad7191_write_raw(struct iio_dev *indio_dev,
 			    struct iio_chan_spec const *chan, int val, int val2,
 			    long mask)
@@ -394,8 +426,7 @@ static int ad7191_write_raw(struct iio_dev *indio_dev,
 		mutex_lock(&st->lock);
 		for (i = 0; i < ARRAY_SIZE(st->scale_avail); i++)
 			if (val2 == st->scale_avail[i][1]) {
-				ret = 0;
-				st->gain_index = i;
+				ret = ad7191_set_gain(st, i);
 				break;
 			}
 		mutex_unlock(&st->lock);
@@ -408,7 +439,7 @@ static int ad7191_write_raw(struct iio_dev *indio_dev,
 		mutex_lock(&st->lock);
 		for (i = 0; i < ARRAY_SIZE(st->samp_freq_avail); i++)
 			if (val == st->samp_freq_avail[i]) {
-				st->samp_freq_index = i;
+				ret = ad7191_set_samp_freq(st, i);
 				break;
 			}
 		mutex_unlock(&st->lock);
@@ -523,6 +554,70 @@ static void ad7191_reg_disable(void *reg)
 	regulator_disable(reg);
 }
 
+static int ad7191_init_gpios(struct iio_dev *indio_dev)
+{
+	struct ad7191_state *st = iio_priv(indio_dev);
+	struct device *dev = &st->sd.spi->dev;
+
+	st->odr1_gpio = devm_gpiod_get_optional(dev, "odr1", GPIOD_OUT_LOW);
+	if (IS_ERR(st->odr1_gpio))
+		return dev_err_probe(dev, PTR_ERR(st->odr1_gpio),
+				     "Failed to get odr1 gpio.\n");
+
+	if (st->odr1_gpio)
+		gpiod_set_value(st->odr1_gpio, 0);
+
+	st->odr2_gpio = devm_gpiod_get_optional(dev, "odr2", GPIOD_OUT_LOW);
+	if (IS_ERR(st->odr2_gpio))
+		return dev_err_probe(dev, PTR_ERR(st->odr2_gpio),
+				     "Failed to get odr2 gpio.\n");
+
+	if (st->odr2_gpio)
+		gpiod_set_value(st->odr2_gpio, 0);
+
+	st->pga1_gpio = devm_gpiod_get_optional(dev, "pga1", GPIOD_OUT_LOW);
+	if (IS_ERR(st->pga1_gpio))
+		return dev_err_probe(dev, PTR_ERR(st->pga1_gpio),
+				     "Failed to get pga1 gpio.\n");
+
+	if (st->pga1_gpio)
+		gpiod_set_value(st->pga1_gpio, 0);
+
+	st->pga2_gpio = devm_gpiod_get_optional(dev, "pga2", GPIOD_OUT_LOW);
+	if (IS_ERR(st->pga2_gpio))
+		return dev_err_probe(dev, PTR_ERR(st->pga2_gpio),
+				     "Failed to get pga2 gpio.\n");
+
+	if (st->pga2_gpio)
+		gpiod_set_value(st->pga2_gpio, 0);
+
+	st->temp_gpio = devm_gpiod_get_optional(dev, "temp", GPIOD_OUT_LOW);
+	if (IS_ERR(st->temp_gpio))
+		return dev_err_probe(dev, PTR_ERR(st->temp_gpio),
+				     "Failed to get temp gpio.\n");
+
+	if (st->temp_gpio)
+		gpiod_set_value(st->temp_gpio, 0);
+
+	st->chan_gpio = devm_gpiod_get_optional(dev, "chan", GPIOD_OUT_LOW);
+	if (IS_ERR(st->chan_gpio))
+		return dev_err_probe(dev, PTR_ERR(st->chan_gpio),
+				     "Failed to get chan gpio.\n");
+
+	if (st->chan_gpio)
+		gpiod_set_value(st->chan_gpio, 0);
+
+	st->clksel_gpio = devm_gpiod_get_optional(dev, "clksel", GPIOD_OUT_LOW);
+	if (IS_ERR(st->clksel_gpio))
+		return dev_err_probe(dev, PTR_ERR(st->clksel_gpio),
+				     "Failed to get clksel gpio.\n");
+
+	if (st->clksel_gpio)
+		gpiod_set_value(st->clksel_gpio, 0);
+
+	return 0;
+}
+
 static int ad7191_probe(struct spi_device *spi)
 {
 	struct ad7191_state *st;
@@ -591,6 +686,10 @@ static int ad7191_probe(struct spi_device *spi)
 	indio_dev->info = st->chip_info->info;
 
 	ad_sd_init(&st->sd, indio_dev, spi, &ad7191_sigma_delta_info);
+
+	ret = ad7191_init_gpios(indio_dev);
+	if (ret)
+		return ret;
 
 	ret = devm_ad_sd_setup_buffer_and_trigger(&spi->dev, indio_dev);
 	if (ret)

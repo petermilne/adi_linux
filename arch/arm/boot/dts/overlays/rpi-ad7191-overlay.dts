@@ -66,7 +66,8 @@
 				dvdd-supply = <&dvdd>;
 				vref-supply = <&vref>;
 
-				test-gpios = <&gpio 24 GPIO_ACTIVE_HIGH>;
+				odr1-gpios = <&gpio 23 GPIO_ACTIVE_HIGH>;
+				odr2-gpios = <&gpio 24 GPIO_ACTIVE_HIGH>;
 			};
 		};
 	};
