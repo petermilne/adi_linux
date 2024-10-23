@@ -3,6 +3,7 @@
 /plugin/;
 
 #include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/interrupt-controller/irq.h>
 
 / {
 	compatible = "brcm,bcm2835", "brcm,bcm2708", "brcm,bcm2709";
@@ -60,7 +61,7 @@
 				spi-cpol;
 				spi-cpha;
 				#interrupt-cells = <2>;
-				interrupts = <25 0x2>;
+				interrupts = <25 IRQ_TYPE_EDGE_FALLING>;
 				interrupt-parent = <&gpio>;
 				avdd-supply = <&avdd>;
 				dvdd-supply = <&dvdd>;
@@ -68,6 +69,9 @@
 
 				odr1-gpios = <&gpio 23 GPIO_ACTIVE_HIGH>;
 				odr2-gpios = <&gpio 24 GPIO_ACTIVE_HIGH>;
+
+				temp-gpios = <&gpio 22 GPIO_ACTIVE_HIGH>;
+				chan-gpios = <&gpio 27 GPIO_ACTIVE_HIGH>;
 			};
 		};
 	};

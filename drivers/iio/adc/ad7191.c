@@ -102,11 +102,19 @@ static struct ad7191_state *ad_sigma_delta_to_ad7191(struct ad_sigma_delta *sd)
 
 static int ad7191_set_channel(struct ad_sigma_delta *sd, unsigned int channel)
 {
-	// struct ad7191_state *st = ad_sigma_delta_to_ad7191(sd);
+	struct ad7191_state *st = ad_sigma_delta_to_ad7191(sd);
+	u8 temp_gpio_val, chan_gpio_val;
 
 	dev_info(&sd->spi->dev, "setting channel %d\n", channel);
 
-	// to set channel by setting gpios
+	chan_gpio_val = 0x1 & channel;
+	temp_gpio_val = (0x2 & channel) >> 1;
+
+	dev_info(&st->sd.spi->dev, "Setting chan gpio to %d\n", chan_gpio_val);
+	dev_info(&st->sd.spi->dev, "Setting temp gpio to %d\n", temp_gpio_val);
+
+	gpiod_set_value(st->chan_gpio, chan_gpio_val);
+	gpiod_set_value(st->temp_gpio, temp_gpio_val);
 
 	return 0;
 }
