@@ -10,11 +10,11 @@
 	fragment@0 {
 		target-path = "/";
 		__overlay__ {
-			dvdd: fixedregulator@0 {
+			avdd: fixedregulator@0 {
 				compatible = "regulator-fixed";
 				regulator-name = "fixed-supply";
-				regulator-min-microvolt = <3300000>;
-				regulator-max-microvolt = <3300000>;
+				regulator-min-microvolt = <5000000>;
+				regulator-max-microvolt = <5000000>;
 				regulator-boot-on;
 			};
 		};
@@ -23,11 +23,11 @@
 	fragment@1 {
 		target-path = "/";
 		__overlay__ {
-			avdd: fixedregulator@1 {
+			dvdd: fixedregulator@1 {
 				compatible = "regulator-fixed";
 				regulator-name = "fixed-supply2";
-				regulator-min-microvolt = <5000000>;
-				regulator-max-microvolt = <5000000>;
+				regulator-min-microvolt = <3300000>;
+				regulator-max-microvolt = <3300000>;
 				regulator-boot-on;
 			};
 		};
@@ -62,8 +62,8 @@
 				#interrupt-cells = <2>;
 				interrupts = <25 0x2>;
 				interrupt-parent = <&gpio>;
-				dvdd-supply = <&dvdd>;
 				avdd-supply = <&avdd>;
+				dvdd-supply = <&dvdd>;
 				vref-supply = <&vref>;
 
 				test-gpios = <&gpio 24 GPIO_ACTIVE_HIGH>;
