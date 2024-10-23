@@ -567,6 +567,11 @@ static int adis16550_set_gyro_filter_freq(struct adis16550 *st, int freq)
 				  (u32)FIELD_PREP(ADIS16550_GYRO_FIR_EN_MASK, en));
 }
 
+enum adis16550_variants{
+        ADIS16550,
+        ADIS16550W
+};
+
 enum {
 	ADIS16550_SCAN_GYRO_X,
 	ADIS16550_SCAN_GYRO_Y,
@@ -821,21 +826,30 @@ static const struct adis16550_sync adis16550_sync_modes[] = {
 	{ ADIS16550_SYNC_MODE_SCALED, 1, 128 },
 };
 
-static const struct adis16550_chip_info adis16550_chip_info = {
-	.num_channels = ARRAY_SIZE(adis16550_channels),
-	.channels = adis16550_channels,
-	.name = "adis16550",
-	.gyro_max_val = 1,
-	.gyro_max_scale = IIO_RAD_TO_DEGREE(80 << 16),
-	.accel_max_val = 1,
-	.accel_max_scale = IIO_M_S_2_TO_G(102400000),
-	.temp_scale = 4,
-	.deltang_max_val = IIO_DEGREE_TO_RAD(720),
-	.deltvel_max_val = 125,
-	.int_clk = 4000,
-	.max_dec = 4095,
-	.sync_mode = adis16550_sync_modes,
-	.num_sync = ARRAY_SIZE(adis16550_sync_modes),
+
+#define ADIS16550_CHIP_INFO(_name) \
+        { \
+                .num_channels = ARRAY_SIZE(adis16550_channels), \
+                .channels = adis16550_channels, \
+                .name = # _name, \
+                .gyro_max_val = 1, \
+                .gyro_max_scale = IIO_RAD_TO_DEGREE(80 << 16), \
+                .accel_max_val = 1, \
+                .accel_max_scale = IIO_M_S_2_TO_G(102400000), \
+                .temp_scale = 4, \
+                .deltang_max_val = IIO_DEGREE_TO_RAD(720), \
+                .deltvel_max_val = 125, \
+                .int_clk = 4000, \
+                .max_dec = 4095, \
+                .sync_mode = adis16550_sync_modes, \
+                .num_sync = ARRAY_SIZE(adis16550_sync_modes), \
+        }
+
+static const struct adis16550_chip_info adis16550_chip_info[] = {
+        [ADIS16550] = 
+                ADIS16550_CHIP_INFO(adis16550),
+        [ADIS16550W] =
+                ADIS16550_CHIP_INFO(adis16550w),
 };
 
 static u32 adis16550_validate_crc(const u32 *buf, const u8 n_elem,
@@ -1139,7 +1153,7 @@ static int adis16550_probe(struct spi_device *spi)
 
 	st = iio_priv(indio_dev);
 
-	st->info = device_get_match_data(&spi->dev);
+	st->info =  device_get_match_data(&spi->dev);
 	if (!st->info)
 		return -EINVAL;
 
@@ -1184,15 +1198,15 @@ static int adis16550_probe(struct spi_device *spi)
 }
 
 static const struct spi_device_id adis16550_id[] = {
-	{ "adis16550", (kernel_ulong_t)&adis16550_chip_info },
-	{ "adis16550w", (kernel_ulong_t)&adis16550_chip_info },
+	{ "adis16550", (kernel_ulong_t)&adis16550_chip_info[ADIS16550]  },
+	{ "adis16550w",  (kernel_ulong_t)&adis16550_chip_info[ADIS16550W] },
 	{ }
 };
 MODULE_DEVICE_TABLE(spi, adis16550_id);
 
 static const struct of_device_id adis16550_of_match[] = {
-	{ .compatible = "adi,adis16550", .data = &adis16550_chip_info },
-	{ .compatible = "adi,adis16550w", .data = &adis16550_chip_info },
+	{ .compatible = "adi,adis16550", .data = &adis16550_chip_info[ADIS16550]},
+	{ .compatible = "adi,adis16550w", .data = &adis16550_chip_info[ADIS16550W] },
 	{ }
 };
 MODULE_DEVICE_TABLE(of, adis16550_of_match);
