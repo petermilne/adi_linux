@@ -153,9 +153,6 @@ struct ad7191_state {
 	struct regulator		*avdd;
 	struct regulator		*vref;
 	u32				fclk;
-	u32				mode;
-	u32				conf;
-	u8				gpocon;
 	struct mutex			lock;	/* protect sensor state */
 	u8				syscalib_mode[8];
 
@@ -252,67 +249,6 @@ static int ad7191_setup(struct iio_dev *indio_dev, struct device *dev)
 	return 0;
 }
 
-static ssize_t ad7191_show_bridge_switch(struct device *dev,
-					 struct device_attribute *attr,
-					 char *buf)
-{
-	struct iio_dev *indio_dev = dev_to_iio_dev(dev);
-	struct ad7191_state *st = iio_priv(indio_dev);
-
-	return sysfs_emit(buf, "%ld\n",
-			  FIELD_GET(AD7191_GPOCON_BPDSW, st->gpocon));
-}
-
-static ssize_t ad7191_set(struct device *dev,
-			  struct device_attribute *attr,
-			  const char *buf,
-			  size_t len)
-{
-	struct iio_dev *indio_dev = dev_to_iio_dev(dev);
-	struct ad7191_state *st = iio_priv(indio_dev);
-	struct iio_dev_attr *this_attr = to_iio_dev_attr(attr);
-	int ret;
-	bool val;
-
-	ret = kstrtobool(buf, &val);
-	if (ret < 0)
-		return ret;
-
-	ret = iio_device_claim_direct_mode(indio_dev);
-	if (ret)
-		return ret;
-
-	switch ((u32)this_attr->address) {
-	case AD7191_REG_GPOCON:
-		if (val)
-			st->gpocon |= AD7191_GPOCON_BPDSW;
-		else
-			st->gpocon &= ~AD7191_GPOCON_BPDSW;
-
-		ad_sd_write_reg(&st->sd, AD7191_REG_GPOCON, 1, st->gpocon);
-		break;
-	default:
-		ret = -EINVAL;
-	}
-
-	iio_device_release_direct_mode(indio_dev);
-
-	return ret ? ret : len;
-}
-
-static IIO_DEVICE_ATTR(bridge_switch_en, 0644,
-			   ad7191_show_bridge_switch, ad7191_set,
-			   AD7191_REG_GPOCON);
-
-static struct attribute *ad7191_attributes[] = {
-	&iio_dev_attr_bridge_switch_en.dev_attr.attr,
-	NULL
-};
-
-static const struct attribute_group ad7191_attribute_group = {
-	.attrs = ad7191_attributes,
-};
-
 static unsigned int ad7191_get_temp_scale(bool unipolar)
 {
 	return unipolar ? 2815 * 2 : 2815;
@@ -323,9 +259,9 @@ static int ad7191_read_raw(struct iio_dev *indio_dev,
 			   int *val,
 			   int *val2,
 			   long m)
-{
+{ 
 	struct ad7191_state *st = iio_priv(indio_dev);
-	bool unipolar = FIELD_GET(AD7191_CONF_UNIPOLAR, st->conf);
+	bool unipolar = true; // no bipolar mode
 
 	switch (m) {
 	case IIO_CHAN_INFO_RAW:
@@ -496,7 +432,6 @@ static const struct iio_info ad7191_info = {
 	.write_raw = ad7191_write_raw,
 	.write_raw_get_fmt = ad7191_write_raw_get_fmt,
 	.read_avail = ad7191_read_avail,
-	.attrs = &ad7191_attribute_group,
 	.validate_trigger = ad_sd_validate_trigger,
 };
 
