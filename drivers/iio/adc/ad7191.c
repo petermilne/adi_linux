@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * AD7190 AD7191 AD7193 AD7195 SPI ADC driver
+ * AD7191 ADC driver
  *
  * Copyright 2011-2015 Analog Devices Inc.
  */
@@ -29,59 +29,7 @@
 #include <linux/iio/triggered_buffer.h>
 #include <linux/iio/adc/ad_sigma_delta.h>
 
-/* Registers */
-#define AD7191_REG_COMM		0 /* Communications Register (WO, 8-bit) */
-#define AD7191_REG_STAT		0 /* Status Register	     (RO, 8-bit) */
-#define AD7191_REG_MODE		1 /* Mode Register	     (RW, 24-bit */
-#define AD7191_REG_CONF		2 /* Configuration Register  (RW, 24-bit) */
-#define AD7191_REG_DATA		3 /* Data Register	     (RO, 24/32-bit) */
-#define AD7191_REG_ID		4 /* ID Register	     (RO, 8-bit) */
-#define AD7191_REG_GPOCON	5 /* GPOCON Register	     (RO, 8-bit) */
-#define AD7191_REG_OFFSET	6 /* Offset Register	     (RW, 16-bit */
-				  /* (AD7792)/24-bit (AD7191)) */
-#define AD7191_REG_FULLSALE	7 /* Full-Scale Register */
-				  /* (RW, 16-bit (AD7792)/24-bit (AD7191)) */
-
-/* Communications Register Bit Designations (AD7191_REG_COMM) */
-#define AD7191_COMM_WEN		BIT(7) /* Write Enable */
-#define AD7191_COMM_WRITE	0 /* Write Operation */
-#define AD7191_COMM_READ	BIT(6) /* Read Operation */
-#define AD7191_COMM_ADDR_MASK	GENMASK(5, 3) /* Register Address Mask */
-#define AD7191_COMM_CREAD	BIT(2) /* Continuous Read of Data Register */
-
-/* Status Register Bit Designations (AD7191_REG_STAT) */
-#define AD7191_STAT_RDY		BIT(7) /* Ready */
-#define AD7191_STAT_ERR		BIT(6) /* Error (Overrange, Underrange) */
-#define AD7191_STAT_NOREF	BIT(5) /* Error no external reference */
-#define AD7191_STAT_PARITY	BIT(4) /* Parity */
-#define AD7191_STAT_CH3		BIT(2) /* Channel 3 */
-#define AD7191_STAT_CH2		BIT(1) /* Channel 2 */
-#define AD7191_STAT_CH1		BIT(0) /* Channel 1 */
-
-/* Mode Register Bit Designations (AD7191_REG_MODE) */
-#define AD7191_MODE_SEL_MASK	GENMASK(23, 21) /* Operation Mode Select Mask */
-#define AD7191_MODE_STA_MASK	BIT(20) /* Status Register transmission Mask */
-#define AD7191_MODE_CLKSRC_MASK	GENMASK(19, 18) /* Clock Source Select Mask */
-#define AD7191_MODE_AVG_MASK	GENMASK(17, 16)
-		  /* Fast Settling Filter Average Select Mask (AD7193 only) */
-#define AD7191_MODE_SINC3	BIT(15) /* SINC3 Filter Select */
-#define AD7191_MODE_ENPAR	BIT(13) /* Parity Enable */
-#define AD7191_MODE_CLKDIV	BIT(12) /* Clock divide by 2 (AD7190/2 only)*/
-#define AD7191_MODE_SCYCLE	BIT(11) /* Single cycle conversion */
-#define AD7191_MODE_REJ60	BIT(10) /* 50/60Hz notch filter */
-				  /* Filter Update Rate Select Mask */
-#define AD7191_MODE_RATE_MASK	GENMASK(9, 0)
-
-/* Mode Register: AD7191_MODE_SEL options */
-#define AD7191_MODE_CONT		0 /* Continuous Conversion Mode */
-#define AD7191_MODE_SINGLE		1 /* Single Conversion Mode */
-#define AD7191_MODE_IDLE		2 /* Idle Mode */
-#define AD7191_MODE_PWRDN		3 /* Power-Down Mode */
-#define AD7191_MODE_CAL_INT_ZERO	4 /* Internal Zero-Scale Calibration */
-#define AD7191_MODE_CAL_INT_FULL	5 /* Internal Full-Scale Calibration */
-#define AD7191_MODE_CAL_SYS_ZERO	6 /* System Zero-Scale Calibration */
-#define AD7191_MODE_CAL_SYS_FULL	7 /* System Full-Scale Calibration */
-
+// TO BE USED
 /* Mode Register: AD7191_MODE_CLKSRC options */
 #define AD7191_CLK_EXT_MCLK1_2		0 /* External 4.92 MHz Clock connected*/
 					  /* from MCLK1 to MCLK2 */
@@ -91,38 +39,13 @@
 #define AD7191_CLK_INT_CO		3 /* Internal 4.92 MHz Clock available*/
 					  /* at the MCLK2 pin */
 
-/* Configuration Register Bit Designations (AD7191_REG_CONF) */
-
-#define AD7191_CONF_CHOP	BIT(23) /* CHOP enable */
-#define AD7191_CONF_ACX		BIT(22) /* AC excitation enable(AD7195 only) */
-#define AD7191_CONF_REFSEL	BIT(20) /* REFIN1/REFIN2 Reference Select */
-#define AD7191_CONF_CHAN_MASK	GENMASK(18, 8) /* Channel select mask */
-#define AD7191_CONF_BURN	BIT(7) /* Burnout current enable */
-#define AD7191_CONF_REFDET	BIT(6) /* Reference detect enable */
-#define AD7191_CONF_BUF		BIT(4) /* Buffered Mode Enable */
-#define AD7191_CONF_UNIPOLAR	BIT(3) /* Unipolar/Bipolar Enable */
-#define AD7191_CONF_GAIN_MASK	GENMASK(2, 0) /* Gain Select */
-
 /* ID Register Bit Designations (AD7191_REG_ID) */
 #define CHIPID_AD7191		0x0
 #define AD7191_ID_MASK		GENMASK(3, 0)
 
-/* GPOCON Register Bit Designations (AD7191_REG_GPOCON) */
-#define AD7191_GPOCON_BPDSW	BIT(6) /* Bridge power-down switch enable */
-#define AD7191_GPOCON_GP32EN	BIT(5) /* Digital Output P3 and P2 enable */
-#define AD7191_GPOCON_GP10EN	BIT(4) /* Digital Output P1 and P0 enable */
-#define AD7191_GPOCON_P3DAT	BIT(3) /* P3 state */
-#define AD7191_GPOCON_P2DAT	BIT(2) /* P2 state */
-#define AD7191_GPOCON_P1DAT	BIT(1) /* P1 state */
-#define AD7191_GPOCON_P0DAT	BIT(0) /* P0 state */
-
 #define AD7191_EXT_FREQ_MHZ_MIN	2457600
 #define AD7191_EXT_FREQ_MHZ_MAX	5120000
 #define AD7191_INT_FREQ_MHZ	4915200
-
-#define AD7191_NO_SYNC_FILTER	1
-#define AD7191_SYNC3_FILTER	3
-#define AD7191_SYNC4_FILTER	4
 
 #define AD7191_CH_AIN1_AIN2		0
 #define AD7191_CH_AIN3_AIN4		1
@@ -154,7 +77,6 @@ struct ad7191_state {
 	struct regulator		*vref;
 	u32				fclk;
 	struct mutex			lock;	/* protect sensor state */
-	u8				syscalib_mode[8];
 
 	struct ad_sigma_delta		sd;
 
@@ -412,7 +334,6 @@ static int ad7191_read_avail(struct iio_dev *indio_dev,
 	case IIO_CHAN_INFO_SCALE:
 		*vals = (int *)st->scale_avail;
 		*type = IIO_VAL_INT_PLUS_NANO;
-		/* Values are stored in a 2D matrix  */
 		*length = ARRAY_SIZE(st->scale_avail) * 2;
 
 		return IIO_AVAIL_LIST;
@@ -663,7 +584,7 @@ static struct spi_driver ad7191_driver = {
 };
 module_spi_driver(ad7191_driver);
 
-MODULE_AUTHOR("Michael Hennerich <michael.hennerich@analog.com>");
-MODULE_DESCRIPTION("Analog Devices AD7190, AD7191, AD7193, AD7195 ADC");
+MODULE_AUTHOR("Alisa-Dariana Roman <alisa.roman@analog.com>");
+MODULE_DESCRIPTION("Analog Devices AD7191 ADC");
 MODULE_LICENSE("GPL v2");
 MODULE_IMPORT_NS(IIO_AD_SIGMA_DELTA);
